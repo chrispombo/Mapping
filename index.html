@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Toril Memorial Park Admin Locator</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background: #ececec; overflow: hidden; }
+        
+        #loginOverlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+            z-index: 99999; display: flex; justify-content: center; align-items: center;
+        }
+        .login-card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.2); text-align: center; width: 320px; }
+        .login-card i { font-size: 50px; color: #2ecc71; margin-bottom: 15px; }
+
+        #sidebar { width: 350px; padding: 20px; background: white; border-right: 2px solid #ddd; overflow-y: auto; z-index: 1000; transition: all 0.4s ease; }
+        h2 { color: #2ecc71; margin-bottom: 5px; }
+        .subtitle { font-size: 12px; color: #7f8c8d; margin-bottom: 20px; }
+
+        .stats-card { background: #f8f9fa; border-radius: 10px; padding: 15px; margin-bottom: 20px; border: 1px solid #eee; display: flex; align-items: center; gap: 15px; }
+        .stats-icon { background: #2ecc71; color: white; padding: 10px; border-radius: 8px; }
+        .stats-count { font-size: 22px; font-weight: bold; color: #2c3e50; }
+
+        .btn-group { display: flex; gap: 10px; margin-bottom: 15px; }
+        .search-box { width: 100%; padding: 12px; margin-bottom: 10px; border: 2px solid #eee; border-radius: 8px; font-size: 15px; outline: none; box-sizing: border-box; }
+        
+        .result-item { padding: 15px; background: #fff; margin-bottom: 10px; cursor: pointer; border-radius: 8px; border-left: 5px solid #2ecc71; box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: 0.2; display: flex; justify-content: space-between; align-items: center; }
+        .result-item:hover { background: #f1f1f1; transform: translateX(5px); }
+
+        #map { flex-grow: 1; cursor: crosshair; }
+        .nav-btn { color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; transition: 0.3s; font-size: 13px; }
+        .admin-btn { background: #3498db; flex: 2; }
+        .export-btn { background: #e67e22; flex: 1; }
+        .logout-link { display: block; text-align: center; color: #e74c3c; font-size: 12px; margin-top: 20px; text-decoration: none; font-weight: bold; cursor: pointer; }
+
+        #addModal { display:none; position:fixed; z-index:9999; left:20px; top:20px; width:320px; }
+        .modal-content { background:white; padding:25px; border-radius:12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border-top: 6px solid #3498db; }
+        .sidebar-hidden { width: 0px !important; padding: 0px !important; opacity: 0; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<div id="loginOverlay">
+    <div class="login-card">
+        <i class="fas fa-user-shield"></i>
+        <h2>Staff Access</h2>
+        <p>Toril Memorial SQL System</p>
+        <input type="password" id="passInput" class="search-box" placeholder="Admin Password" style="text-align: center;">
+        <button onclick="handleLogin()" class="nav-btn" style="background: #2ecc71; width: 100%;">Access Database</button>
+        <div id="loginError" style="color: #e74c3c; font-size: 12px; margin-top: 10px; display: none;">Invalid credentials.</div>
+    </div>
+</div>
+
+<div id="sidebar">
+    <h2>Toril Memorial</h2>
+    <div class="subtitle">MySQL Admin Portal</div>
+
+    <div class="stats-card">
+        <div class="stats-icon"><i class="fas fa-database"></i></div>
+        <div class="stats-info">
+            <div class="stats-count" id="totalCount">0</div>
+            <div class="stats-label">Live SQL Records</div>
+        </div>
+    </div>
+    
+    <div class="btn-group">
+        <button onclick="enableFocusMode()" class="nav-btn admin-btn"><i class="fas fa-plus"></i> Add New</button>
+        <button onclick="exportToCSV()" class="nav-btn export-btn"><i class="fas fa-file-export"></i> CSV</button>
+    </div>
+
+    <input type="text" id="searchInput" class="search-box" placeholder="Search Database..." onkeyup="filterData()">
+    <div id="results"></div>
+    <a onclick="logout()" class="logout-link"><i class="fas fa-sign-out-alt"></i> Secure Logout</a>
+</div>
+
+<div id="map"></div>
+
+<div id="addModal">
+    <div class="modal-content">
+        <h3 style="margin-top:0; color:#3498db;"><i class="fas fa-map-pin"></i> Pinpoint Plot</h3>
+        <input type="text" id="newName" class="search-box" placeholder="Deceased Full Name">
+        <input type="date" id="newDate" class="search-box">
+        <input type="text" id="newSec" class="search-box" placeholder="Section">
+        <input type="text" id="newBlk" class="search-box" placeholder="Block #">
+        <input type="text" id="newLot" class="search-box" placeholder="Lot #">
+        <div style="display: flex; gap: 5px;">
+            <input type="text" id="newLat" class="search-box" style="background:#f9f9f9" placeholder="Lat" readonly>
+            <input type="text" id="newLng" class="search-box" style="background:#f9f9f9" placeholder="Lng" readonly>
+        </div>
+        <button onclick="saveRecord()" class="nav-btn" style="background:#2ecc71; width: 100%; margin-top: 10px;">Save to MySQL</button>
+        <button onclick="disableFocusMode()" class="nav-btn" style="background:#95a5a6; width: 100%; margin-top: 5px;">Cancel</button>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    let records = [];
+    let tempMarker = null;
+    let markerLayer = L.layerGroup();
+
+    const map = L.map('map').setView([7.041627, 125.495141], 18);
+    L.tileLayer('http://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 21, subdomains:['mt0','mt1','mt2','mt3'] }).addTo(map);
+    markerLayer.addTo(map);
+
+    async function fetchFromMySQL() {
+        try {
+            const res = await fetch('api.php?action=fetch');
+            records = await res.json();
+            displayResults(records);
+        } catch (e) { console.error("DB Error:", e); }
+    }
+
+    async function handleLogin() {
+        const pass = document.getElementById('passInput').value;
+        try {
+            const res = await fetch('api.php?action=login', {
+                method: 'POST',
+                body: JSON.stringify({ password: pass })
+            });
+            const data = await res.json();
+            if(data.status === "success") {
+                document.getElementById('loginOverlay').style.display = 'none';
+                sessionStorage.setItem('isLoggedIn', 'true');
+                fetchFromMySQL();
+            } else {
+                document.getElementById('loginError').style.display = 'block';
+                document.getElementById('loginError').innerText = data.message || "Invalid credentials.";
+            }
+        } catch (err) {
+            alert("Connection error. Is XAMPP running?");
+        }
+    }
+
+    // DINAGDAG KO NA ANG MGA DATA FIELDS DITO PARA GUMANA ANG SAVE
+    async function saveRecord() {
+        const record = {
+            name: document.getElementById('newName').value,
+            death: document.getElementById('newDate').value,
+            sec: document.getElementById('newSec').value,
+            blk: document.getElementById('newBlk').value,
+            lot: document.getElementById('newLot').value,
+            lat: document.getElementById('newLat').value,
+            lng: document.getElementById('newLng').value
+        };
+
+        if (!record.name || !record.lat) {
+            alert("Please provide a name and pin a location on the map.");
+            return;
+        }
+
+        try {
+            const res = await fetch('api.php?action=save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(record)
+            });
+            
+            const result = await res.json();
+            
+            if(result.status === "success") {
+                alert("Saved to Database!");
+                disableFocusMode();
+                fetchFromMySQL();
+            } else {
+                alert("Error: " + result.message);
+            }
+        } catch (err) {
+            console.error("Fetch Error:", err);
+            alert("Cannot connect to api.php. Check your connection.");
+        }
+    }
+
+    async function deleteRecord(id) {
+        if(confirm("Delete this record permanently from server?")) {
+            await fetch(`api.php?action=delete&id=${id}`);
+            fetchFromMySQL();
+        }
+    }
+
+    function displayResults(data) {
+        const list = document.getElementById('results');
+        list.innerHTML = '';
+        document.getElementById('totalCount').innerText = data.length;
+        markerLayer.clearLayers();
+
+        data.forEach(p => {
+            const item = document.createElement('div');
+            item.className = 'result-item';
+            item.innerHTML = `
+                <div class="info-area" onclick="showOnMap(${p.lat}, ${p.lng}, '${p.name}')">
+                    <strong>${p.name}</strong>
+                    <div style="font-size:11px; color:#999;">${p.section} | B${p.block}-L${p.lot}</div>
+                </div>
+                <div class="delete-btn" style="color:#e74c3c; cursor:pointer;" onclick="event.stopPropagation(); deleteRecord(${p.id})"><i class="fas fa-trash-alt"></i></div>`;
+            list.appendChild(item);
+            L.marker([p.lat, p.lng]).addTo(markerLayer).bindPopup(`<b>${p.name}</b>`);
+        });
+    }
+
+    function showOnMap(lat, lng, name) {
+        map.flyTo([lat, lng], 21);
+        L.popup().setLatLng([lat, lng]).setContent(`<b>${name}</b>`).openOn(map);
+    }
+
+    function enableFocusMode() {
+        document.getElementById('sidebar').classList.add('sidebar-hidden');
+        document.getElementById('addModal').style.display = 'block';
+    }
+
+    function disableFocusMode() {
+        document.getElementById('sidebar').classList.remove('sidebar-hidden');
+        document.getElementById('addModal').style.display = 'none';
+        if(tempMarker) map.removeLayer(tempMarker);
+        tempMarker = null;
+        document.querySelectorAll('#addModal input').forEach(i => i.value = '');
+    }
+
+    map.on('click', (e) => {
+        if(document.getElementById('addModal').style.display === 'block') {
+            document.getElementById('newLat').value = e.latlng.lat.toFixed(8);
+            document.getElementById('newLng').value = e.latlng.lng.toFixed(8);
+            if (tempMarker) tempMarker.setLatLng(e.latlng);
+            else tempMarker = L.marker(e.latlng, {draggable: true}).addTo(map);
+        }
+    });
+
+    function filterData() {
+        const term = document.getElementById('searchInput').value.toLowerCase();
+        const filtered = records.filter(r => r.name.toLowerCase().includes(term));
+        displayResults(filtered);
+    }
+
+    function exportToCSV() {
+        if(records.length === 0) return;
+        let csv = "Name,Death Date,Section,Block,Lot,Lat,Lng\n";
+        records.forEach(r => {
+            csv += `${r.name},${r.death_date},${r.section},${r.block},${r.lot},${r.lat},${r.lng}\n`;
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.setAttribute('href', url);
+        a.setAttribute('download', 'burial_records.csv');
+        a.click();
+    }
+
+    function logout() { sessionStorage.clear(); location.reload(); }
+    
+    if(sessionStorage.getItem('isLoggedIn')) {
+        document.getElementById('loginOverlay').style.display = 'none';
+        fetchFromMySQL();
+    }
+</script>
+</body>
+</html>
